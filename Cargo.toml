@@ -1,0 +1,15 @@
+[package]
+name = "rustychain"
+version = "0.1.0"
+authors = ["Emirhan TALA <emirhantala99ff99@gmail.com>"]
+description = "A simple blockchain written with the Rust programming language."
+edition = "2021"
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/Emivvvvv/rustychain"
+
+
+[dependencies]
+sha2 = "0.10.7"
+thiserror = "1.0.44"
+clap = "4.3.19"
