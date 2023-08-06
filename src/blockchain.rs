@@ -1,3 +1,4 @@
+use std::fmt;
 use crate::accounts::{Accounts, Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};
 use crate::sha128::{Sha128, OVERFLOW_PROTECTION};
@@ -30,12 +31,35 @@ impl Chain {
         }
     }
 
+    pub fn print_all_blockchain(&self) {
+        for block in &self.chain {
+            println!("{block}")
+        }
+    }
+
+    pub fn print_current(&self) {
+        println!();
+        println!("Last block:\n{}", &self.chain[self.length - 1]);
+        println!();
+
+        let transactions = &self.curr_trans;
+
+        if transactions.is_empty() {println!("No new transactions.")}
+        else {println!("Current transactions:");}
+
+        for transaction in transactions {
+            println!("{transaction}")
+        }
+
+    }
+
     pub fn test(&mut self, private_key: u128) {
         self.accounts.test_add_coins(private_key)
     }
 
-    pub fn mine(&mut self) {
+    pub fn mine(&mut self, miner_address: u128) {
         let last_block = &self.chain[self.length - 1];
+        self.curr_trans.push(Transaction::transaction_to_miner(miner_address));
         let curr_trans = self.curr_trans.clone();
         self.curr_trans = Vec::new();
 
@@ -43,6 +67,7 @@ impl Chain {
         Chain::pow(&mut new_block);
         new_block.header.time = get_time();
         self.accounts.update_accounts(curr_trans);
+        self.length += 1;
 
         self.chain.push(new_block)
     }
@@ -146,6 +171,25 @@ impl Block {
 
     fn get_difficulty(&self) -> u8 {
         self.header.difficulty
+    }
+}
+
+impl fmt::Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f,
+               "| previous block's hash: {}\n\
+               | mining time: {}\n\
+               | nonce: {}\n\
+               | merkle: {}\n\
+               | difficulty: {}\n\
+               | block hash: {}",
+               self.header.pre_hash,
+               self.header.time,
+               self.header.nonce,
+               self.header.merkle,
+               self.header.difficulty,
+               self.get_hash(),
+               )
     }
 }
 

@@ -1,6 +1,7 @@
-use crate::sha128::Sha128;
+use crate::sha128::{OVERFLOW_PROTECTION, Sha128};
 use crate::error::{AccountDNE, TransactionError};
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Debug)]
 pub struct Accounts {
@@ -23,8 +24,12 @@ pub struct Transaction {
 
 impl Accounts {
     pub fn new() -> Self {
+        let mut accounts_map = HashMap::new();
+        let mut system_account = Account::new_with_private_key(31);
+        system_account.amount = 21_000_000;
+        accounts_map.insert(Sha128::address(31), system_account);
         Accounts {
-            accounts_map: HashMap::new()
+            accounts_map,
         }
     }
 
@@ -119,6 +124,17 @@ impl Transaction {
         }
     }
 
+    pub fn transaction_to_miner(receiver_address: u128) -> Self {
+        let amount = 6931;
+        let system_private_key = 31;
+        Transaction {
+            hash: Sha128::transaction_hash(Sha128::public_key(system_private_key), receiver_address, amount),
+            sender_address: Sha128::address(system_private_key),
+            receiver_address,
+            amount,
+        }
+    }
+
     pub(crate) fn get_receiver_address(&self) -> u128 {
         self.receiver_address
     }
@@ -135,12 +151,31 @@ impl Transaction {
         }
 
         while merkle.len() > 1 {
-            let mut h1 = merkle.remove(0);
-            let h2 = merkle.remove(0);
+            let mut h1 = merkle.remove(0) % OVERFLOW_PROTECTION;
+            let h2 = merkle.remove(0) % OVERFLOW_PROTECTION;
             h1 = h1 + h2;
             let nh = Sha128::hash(h1);
             merkle.push(nh);
         }
-        merkle.pop().unwrap()
+        match merkle.pop() {
+            Some(merkle) => merkle,
+            None => 0
+        }
+    }
+}
+
+impl fmt::Display for Transaction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f,
+               "\
+               ------------\
+               transaction:{}\n\
+               from address <{}> -> to address <{}>\n\
+               amount:<{}>\
+               ------------",
+               self.hash,
+               self.sender_address,
+               self.receiver_address,
+               self.amount)
     }
 }
