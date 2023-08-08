@@ -1,6 +1,7 @@
 use std::fmt;
 use crate::accounts::{Accounts, Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};
+use crate::error::ChainError;
 use crate::sha128::{Sha128, OVERFLOW_PROTECTION};
 
 pub struct Chain {
@@ -14,7 +15,7 @@ pub struct Chain {
 
 impl Chain {
     pub fn init() -> Self {
-        let difficulty: u8 = 20;
+        let difficulty: u8 = 5;
         let chain: Vec<Block> = vec![Block::get_genesis_block(difficulty)];
         let accounts = Accounts::new();
         let curr_trans: Vec<Transaction> = Vec::new();
@@ -29,6 +30,20 @@ impl Chain {
             difficulty,
             reward,
         }
+    }
+
+    pub fn check_health(&self, chain: &Chain) -> Result<(), ChainError> {
+        let curr_block_hash = self.chain[self.length - 1].get_hash();
+        let new_chain_prev_has = chain.chain[chain.length - 1].header.pre_hash;
+
+        if curr_block_hash == new_chain_prev_has {
+            if self.chain[..self.length - 1] == chain.chain[..self.length - 2] {
+                Ok(())
+            } else {
+                Err(ChainError("Bad chain! Chain is broken!"))
+            }
+        }
+        else { Err(ChainError("Bad block! Prev has is not correct!")) }
     }
 
     pub fn print_all_blockchain(&self) {
@@ -53,18 +68,15 @@ impl Chain {
 
     }
 
-    pub fn test(&mut self, private_key: u128) {
-        self.accounts.test_add_coins(private_key)
-    }
-
     pub fn mine(&mut self, miner_address: u128) {
         let last_block = &self.chain[self.length - 1];
-        self.curr_trans.push(Transaction::transaction_to_miner(miner_address));
+        self.curr_trans.push(Transaction::transaction_to_miner(miner_address, self.reward));
         let curr_trans = self.curr_trans.clone();
         self.curr_trans = Vec::new();
 
         let mut new_block = Block::new_block(last_block, curr_trans.clone());
         Chain::pow(&mut new_block);
+
         new_block.header.time = get_time();
         self.accounts.update_accounts(curr_trans);
         self.length += 1;
@@ -106,7 +118,7 @@ fn get_time() -> u128 {
         .as_micros()
 }
 
-#[derive(Debug)]
+#[derive(PartialEq)]
 pub struct BlockHeader {
     time: u128,
     nonce: u128,
@@ -123,8 +135,7 @@ impl BlockHeader {
             self.difficulty as u128
     }
 }
-
-#[derive(Debug)]
+#[derive(PartialEq)]
 pub struct Block {
     header: BlockHeader,
     transactions: Vec<Transaction>

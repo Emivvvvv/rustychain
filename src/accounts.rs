@@ -3,18 +3,16 @@ use crate::error::{AccountDNE, TransactionError};
 use std::collections::HashMap;
 use std::fmt;
 
-#[derive(Debug)]
 pub struct Accounts {
     accounts_map: HashMap<u128, Account>
 }
 
-#[derive(Debug)]
 pub struct Account {
     public_key: Option<u128>,
     amount: u128,
 }
 
-#[derive(Clone, Debug)]
+#[derive(PartialEq, Clone)]
 pub struct Transaction {
     hash: u128,
     sender_address: u128,
@@ -54,14 +52,6 @@ impl Accounts {
         }
     }
 
-    // for testing purposes
-    pub fn test_add_coins(&mut self, private_key: u128) {
-        let address = Sha128::address(private_key);
-        let mut  account = Account::new_with_private_key(private_key);
-        account.amount += 50;
-        self.accounts_map.insert(address, account);
-    }
-
     pub fn get_account_amount(&self, address: &u128) -> Result<u128, AccountDNE> {
         match &self.accounts_map.get(address) {
             Some(&ref account) => Ok(account.get_amount()),
@@ -83,6 +73,12 @@ impl Accounts {
                 else { Err(TransactionError("Insufficient amount")) }
             },
             None => Err(TransactionError("Sender account DNE"))
+        }
+    }
+
+    pub fn print_accounts(&self) {
+        for (account_address, account) in &self.accounts_map {
+            println!("account address: {}, account balance: {}", account_address, account.get_amount())
         }
     }
 }
@@ -124,8 +120,8 @@ impl Transaction {
         }
     }
 
-    pub fn transaction_to_miner(receiver_address: u128) -> Self {
-        let amount = 6931;
+    pub fn transaction_to_miner(receiver_address: u128, amount: u8) -> Self {
+        let amount = amount as u128;
         let system_private_key = 31;
         Transaction {
             hash: Sha128::transaction_hash(Sha128::public_key(system_private_key), receiver_address, amount),
@@ -168,10 +164,10 @@ impl fmt::Display for Transaction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
                "\
-               ------------\
+               ------------\n\
                transaction:{}\n\
                from address <{}> -> to address <{}>\n\
-               amount:<{}>\
+               amount:<{}>\n\
                ------------",
                self.hash,
                self.sender_address,

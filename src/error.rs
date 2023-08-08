@@ -15,3 +15,7 @@ pub struct TransactionError(pub &'static str);
 #[derive(Error, Debug)]
 #[error("Miner Error: {0}")]
 pub struct MinerError(pub &'static str);
+
+#[derive(Error, Debug)]
+#[error("Chain Error: {0}")]
+pub struct ChainError(pub &'static str);
