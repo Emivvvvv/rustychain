@@ -17,9 +17,9 @@ impl Miner {
     }
 
     pub fn mine(&mut self) {
-        self.chain.mine(Sha128::address(self.private_key));
+        self.chain.mine(Sha128::address(self.private_key), self.threads);
         println!("Block mined successfully");
-        Miner::print_current(&self);
+        Miner::print_current(self);
     }
 
     pub fn send_transaction(&mut self, receiver_address: u128, amount: u128) {

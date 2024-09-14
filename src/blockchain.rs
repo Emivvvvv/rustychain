@@ -15,7 +15,7 @@ pub struct Chain {
 
 impl Chain {
     pub fn init() -> Self {
-        let difficulty: u8 = 5;
+        let difficulty: u8 = 24;
         let chain: Vec<Block> = vec![Block::get_genesis_block(difficulty)];
         let accounts = Accounts::new();
         let curr_trans: Vec<Transaction> = Vec::new();
@@ -68,14 +68,15 @@ impl Chain {
 
     }
 
-    pub fn mine(&mut self, miner_address: u128) {
+    pub fn mine(&mut self, miner_address: u128, num_threads: u8) {
+        self.miner_reward_transaction(miner_address, self.reward);
+
         let last_block = &self.chain[self.length - 1];
-        self.curr_trans.push(Transaction::transaction_to_miner(miner_address, self.reward));
         let curr_trans = self.curr_trans.clone();
         self.curr_trans = Vec::new();
 
         let mut new_block = Block::new_block(last_block, curr_trans.clone());
-        Chain::pow(&mut new_block);
+        self.pow(&mut new_block, num_threads);
 
         new_block.header.time = get_time();
         self.accounts.update_accounts(curr_trans);
@@ -84,17 +85,67 @@ impl Chain {
         self.chain.push(new_block)
     }
 
+    pub fn pow(&self, block: &mut Block, num_threads: u8) {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::thread;
+        use std::sync::mpsc;
 
-    pub fn pow(block: &mut Block) {
-        while Sha128::block_hash(&block.header) > std::u128::MAX >> block.get_difficulty(){
-            block.header.nonce += 1
+        let difficulty = self.difficulty as u128;
+
+        let (tx, rx) = mpsc::channel();
+
+        let found = Arc::new(AtomicBool::new(false));
+        let block_header = Arc::new(block.header.clone());
+
+        let mut handles = Vec::new();
+        for i in 0..num_threads {
+            let tx = tx.clone();
+            let found = Arc::clone(&found);
+            let block_header = Arc::clone(&block_header);
+            let thread_id = i;
+
+            let handle = thread::spawn(move || {
+                let mut local_header = (*block_header).clone();
+                local_header.nonce = thread_id as u128;
+
+                while !found.load(Ordering::Relaxed) {
+                    let hash = Sha128::block_hash(&local_header);
+                    if hash >> (128 - difficulty) == 0 {
+                        if !found.swap(true, Ordering::Relaxed) {
+                            let _ = tx.send(local_header.nonce);
+                        }
+                        break;
+                    } else {
+                        local_header.nonce += num_threads as u128;
+                    }
+                }
+            });
+
+            handles.push(handle);
+        }
+
+        drop(tx);
+
+        if let Ok(nonce) = rx.recv() {
+            block.header.nonce = nonce;
+        }
+
+        for handle in handles {
+            let _ = handle.join();
         }
     }
 
+    pub fn miner_reward_transaction(&mut self, miner_address: u128, reward: u8) {
+        self.sign_transaction(31, miner_address, reward as u128);
+    }
     pub fn sign_transaction(&mut self, private_key: u128, receiver_address: u128, amount: u128) {
         match &self.accounts.sign_transaction(private_key, receiver_address, amount) {
-            Ok(transaction) => self.curr_trans.push(transaction.clone()),
-            Err(err) => panic!("{}", err),
+            Ok(transaction) => {
+                println!("New Transaction:\n{}", transaction);
+                self.curr_trans.push(transaction.clone())
+            },
+            Err(err) => println!("{}", err),
         }
     }
 
@@ -118,7 +169,7 @@ fn get_time() -> u128 {
         .as_micros()
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub struct BlockHeader {
     time: u128,
     nonce: u128,
@@ -188,12 +239,12 @@ impl Block {
 impl fmt::Display for Block {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f,
-               "| previous block's hash: {}\n\
+               "| previous block's hash: {:032x}\n\
                | mining time: {}\n\
                | nonce: {}\n\
-               | merkle: {}\n\
+               | merkle: {:032x}\n\
                | difficulty: {}\n\
-               | block hash: {}",
+               | block hash: {:032x}",
                self.header.pre_hash,
                self.header.time,
                self.header.nonce,

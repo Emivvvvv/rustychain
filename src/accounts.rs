@@ -3,16 +3,19 @@ use crate::error::{AccountDNE, TransactionError};
 use std::collections::HashMap;
 use std::fmt;
 
+#[derive(Default)]
 pub struct Accounts {
     accounts_map: HashMap<u128, Account>
 }
 
 pub struct Account {
+    #[allow(dead_code)]
     public_key: Option<u128>,
     amount: u128,
+    pending_amount: u128,
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct Transaction {
     hash: u128,
     sender_address: u128,
@@ -33,46 +36,44 @@ impl Accounts {
 
     pub(super) fn update_accounts(&mut self, transactions: Vec<Transaction>) {
         for transaction in transactions {
+            let sender_address = transaction.get_sender_address();
+            if let Some(sender_account) = self.accounts_map.get_mut(&sender_address) {
+                sender_account.amount -= transaction.amount;
+                sender_account.pending_amount -= transaction.amount;
+            };
+
             let receiver_address = transaction.get_receiver_address();
-            let mut receiver_account;
-            let mut old_amount = 0;
-            match self.accounts_map.get(&receiver_address) {
-                Some(account) => {
-                    let public_key_option = account.public_key;
-                    old_amount = account.get_amount();
-                    match public_key_option {
-                        Some(public_key) => receiver_account = Account::new_with_public_key(public_key),
-                        None => receiver_account = Account::new(),
-                    }
-                },
-                None => receiver_account = Account::new(),
+            if let Some(receiver_account) = self.accounts_map.get_mut(&receiver_address) {
+                receiver_account.amount += transaction.amount;
+            } else {
+                let mut new_account = Account::new();
+                new_account.amount += transaction.amount;
+                self.accounts_map.insert(receiver_address, new_account);
             }
-            receiver_account.amount = transaction.amount + old_amount;
-            self.accounts_map.insert(receiver_address, receiver_account);
         }
     }
 
     pub fn get_account_amount(&self, address: &u128) -> Result<u128, AccountDNE> {
         match &self.accounts_map.get(address) {
-            Some(&ref account) => Ok(account.get_amount()),
+            Some(account) => Ok(account.get_amount()),
             None => Err(AccountDNE)
         }
     }
 
     pub fn sign_transaction(&mut self, private_key: u128, receiver_address: u128, amount: u128) -> Result<Transaction, TransactionError> {
         let sender_address = Sha128::address(private_key);
-        match self.accounts_map.get(&sender_address) {
+        match self.accounts_map.get_mut(&sender_address) {
             Some(account) => {
-                if account.get_amount() >= amount {
-                    let old_amount = account.get_amount();
-                    let mut sender_account = Account::new_with_private_key(private_key);
-                    sender_account.amount = old_amount - amount;
-                    self.accounts_map.insert(sender_address, sender_account);
+                if account.get_amount() - account.get_pending_amount() >= amount {
+                    account.pending_amount += amount;
                     Ok(Transaction::generate_transaction(private_key, receiver_address, amount))
                 }
-                else { Err(TransactionError("Insufficient amount")) }
+                else {
+                    let err_str = format!("Insufficient amount! amount: `{}`, pending amount: `{}`", account.get_amount(), account.get_pending_amount());
+                    Err(TransactionError(err_str))
+                }
             },
-            None => Err(TransactionError("Sender account DNE"))
+            None => Err(TransactionError("Sender account DNE".to_string()))
         }
     }
 
@@ -88,25 +89,24 @@ impl Account {
         Account {
             public_key: None,
             amount: 0,
+            pending_amount: 0,
         }
     }
 
     fn new_with_private_key(private_key: u128) -> Self {
         Account {
             public_key: Some(Sha128::public_key(private_key)),
-            amount: 0
-        }
-    }
-
-    fn new_with_public_key(public_key: u128) -> Self {
-        Account {
-            public_key: Some(public_key),
-            amount: 0
+            amount: 0,
+            pending_amount: 0,
         }
     }
 
     fn get_amount(&self) -> u128 {
         self.amount
+    }
+
+    fn get_pending_amount(&self) -> u128 {
+        self.pending_amount
     }
 }
 
@@ -123,12 +123,20 @@ impl Transaction {
     pub fn transaction_to_miner(receiver_address: u128, amount: u8) -> Self {
         let amount = amount as u128;
         let system_private_key = 31;
-        Transaction {
-            hash: Sha128::transaction_hash(Sha128::public_key(system_private_key), receiver_address, amount),
+        let miner_reward_transaction = Transaction {
+            hash: Sha128::transaction_hash(Sha128::address(system_private_key), receiver_address, amount),
             sender_address: Sha128::address(system_private_key),
             receiver_address,
             amount,
-        }
+        };
+
+        println!("Miner reward transaction\n{}\n", miner_reward_transaction);
+
+        miner_reward_transaction
+    }
+
+    pub(crate) fn get_sender_address(&self) -> u128 {
+        self.sender_address
     }
 
     pub(crate) fn get_receiver_address(&self) -> u128 {
@@ -139,7 +147,7 @@ impl Transaction {
         self.hash
     }
 
-    pub(crate) fn get_merkle(curr_trans: &Vec<Transaction>) -> u128 {
+    pub(crate) fn get_merkle(curr_trans: &[Transaction]) -> u128 {
         let mut merkle = curr_trans.iter().map(|t| t.get_hash()).collect::<Vec<u128>>();
 
         if merkle.len() % 2 == 1 {
@@ -149,14 +157,11 @@ impl Transaction {
         while merkle.len() > 1 {
             let mut h1 = merkle.remove(0) % OVERFLOW_PROTECTION;
             let h2 = merkle.remove(0) % OVERFLOW_PROTECTION;
-            h1 = h1 + h2;
+            h1 += h2;
             let nh = Sha128::hash(h1);
             merkle.push(nh);
         }
-        match merkle.pop() {
-            Some(merkle) => merkle,
-            None => 0
-        }
+        merkle.pop().unwrap_or(0)
     }
 }
 

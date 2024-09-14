@@ -1,13 +1,13 @@
 use sha2::{Sha256, Digest};
 use crate::blockchain::BlockHeader;
 
-pub const OVERFLOW_PROTECTION: u128 = std::u128::MAX >> 1;
+pub const OVERFLOW_PROTECTION: u128 = u128::MAX >> 1;
 
 fn u128_to_u8_array(n: u128) -> [u8; 16] {
     let mut result = [0u8; 16];
 
-    for i in 0..16 {
-        result[i] = ((n >> (8 * (15 - i))) & 0xFF) as u8;
+    for (i, byte) in result.iter_mut().enumerate() {
+        *byte = ((n >> (8 * (15 - i))) & 0xFF) as u8;
     }
 
     result
@@ -16,20 +16,19 @@ fn u128_to_u8_array(n: u128) -> [u8; 16] {
 fn u8_array_to_u128(array: [u8; 16]) -> u128 {
     let mut result: u128 = 0;
 
-    for i in 0..16 {
-        result |= u128::from(array[i]) << (8 * (15 - i));
+    for (i, &byte) in array.iter().enumerate() {
+        result |= u128::from(byte) << (8 * (15 - i));
     }
 
     result
 }
 
+
 fn sha128(input: u128) -> u128 {
     let mut hasher = Sha256::new();
     hasher.update(u128_to_u8_array(input));
     let hash = hasher.finalize();
-    let hash128 = u8_array_to_u128(hash[..16].try_into().unwrap());
-
-    hash128
+    u8_array_to_u128(hash[..16].try_into().unwrap())
 }
 
 pub struct Sha128;
